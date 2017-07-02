@@ -4,6 +4,8 @@
 
 A simple command-line tool to watch one or more Glob patterns and run commands when they change. Essentially this is a more ergonomic version of `inotifywait`.
 
+This CLI is a simple wrapper around the excellent [`twitch` library](https://github.com/jfischoff/twitch).
+
 
 ## Usage
 
