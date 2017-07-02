@@ -1,7 +1,12 @@
 name:                twitch-cli
 version:             0.1.0.0
 synopsis:            CLI to watch file patterns and run commands when they change
-description:         Please see README.md
+description:
+  This package provides a simple command-line interface (CLI) to the excellent
+  twitch library. It allows you to quickly set up complex file-watching rules and
+  commands that can respond to changes.
+  .
+  This package is maintained by Grafted-In (<https://www.graftedin.io/>).
 homepage:            https://github.com/grafted-in/twitch-cli
 license:             BSD3
 license-file:        LICENSE
@@ -11,6 +16,9 @@ copyright:           2017 Elliot Cameron and Grafted-In, LLC
 category:            Web
 build-type:          Simple
 cabal-version:       >=1.10
+extra-source-files:
+  CHANGELOG.md
+  README.md
 
 executable twitch
   hs-source-dirs: src
@@ -18,7 +26,7 @@ executable twitch
   build-depends:
     base                  >= 4.7 && < 5,
     data-default           == 0.7.*,
-    optparse-applicative  == 0.14.*,
+    optparse-applicative  >= 0.13 && < 0.15,
     process               == 1.*,
     twitch                == 0.1.7.*
   default-language: Haskell2010

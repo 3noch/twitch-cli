@@ -2,9 +2,12 @@
 
 [![License](https://img.shields.io/badge/License-BSD%203--Clause-blue.svg)](https://opensource.org/licenses/BSD-3-Clause)
 
-A simple command-line tool to watch one or more Glob patterns and run commands when they change. Essentially this is a more ergonomic version of `inotifywait`.
+A simple command-line tool to watch one or more [Glob patterns](https://hackage.haskell.org/package/Glob/docs/System-FilePath-Glob.html#v:compile) and run commands when they change. Essentially this is a more ergonomic version of [`inotifywait`](https://linux.die.net/man/1/inotifywait).
 
 This CLI is a simple wrapper around the excellent [`twitch` library](https://github.com/jfischoff/twitch).
+
+
+**Built by [Grafted-In](https://graftedin.io).**
 
 
 ## Usage

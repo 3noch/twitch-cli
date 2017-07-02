@@ -69,15 +69,17 @@ cmdOpts = Options
     (  O.long "pattern"
     <> O.short 'p'
     <> O.metavar "PATTERN:COMMAND"
-    <> O.help "A glob pattern that matches files paired with a command to run \
-              \when any matching file changes. Separate the pattern and the \
-              \command with ':'. The command will have access to an environment \
-              \variable named $FILE which will contain the path to the file that \
-              \changed. Note that if many files change quickly, the debounce \
-              \setting may cause only one or some of the files to trigger the \
-              \command to run. If you need per-file commands, disable debounce. \
-              \(Examples: '**/*.pyo:rm $FILE', '*.cabal:cabal configure', \
-              \'**/**:git status')"
+    <> O.help
+      "A glob pattern that matches files paired with a command to run \
+      \when any matching file changes. Separate the pattern and the \
+      \command with ':'. The command will have access to an environment \
+      \variable named $FILE which will contain the path to the file that \
+      \changed. Note that if many files change quickly, the debounce \
+      \setting may cause only one or some of the files to trigger the \
+      \command to run. If you need per-file commands, disable debounce. \
+      \For Glob pattern rules, refer to https://goo.gl/PgdTqF \
+      \Examples: '**/*.pyo:rm $FILE', '*.cabal:cabal configure', \
+      \'**/**:git status'"
     ))
 
 parsePattern :: String -> Either String Pattern
