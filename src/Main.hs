@@ -113,7 +113,7 @@ cmdOpts = Options
     ( O.long "key"
     <> O.short 'k'
     <> O.metavar "DEBOUNCE-KEY"
-    <> O.help "Key to use for debouncing. May by one of 'all', 'pattern', 'command', or 'file'."
+    <> O.help "Key to use for debouncing. May be one of 'all', 'pattern', 'command', or 'file'."
     <> O.value "pattern"
     <> O.showDefault
     )
