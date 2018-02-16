@@ -27,7 +27,7 @@ twitch -p '*.cabal:cabal configure && cabal build' -p 'src/**/*.hs:cabal build'
 
 # Watches all .log files in /var/log and prints their last line
 # when they change.
-twitch --debounce 0 --dir /var/log -p '*.log:tail -n 1 $FILE'
+twitch --debounce 0 -p '/var/log/*.log:tail -n 1 $FILE'
 ```
 
 
