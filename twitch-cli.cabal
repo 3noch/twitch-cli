@@ -1,5 +1,5 @@
 name:                twitch-cli
-version:             0.1.0.0
+version:             0.2.0.0
 synopsis:            CLI to watch file patterns and run commands when they change
 description:
   This package provides a simple command-line interface (CLI) to the excellent
@@ -24,10 +24,12 @@ executable twitch
   hs-source-dirs: src
   main-is: Main.hs
   build-depends:
+    async                 >= 2.1 && <= 2.3,
     base                  >= 4.7 && < 5,
-    data-default           == 0.7.*,
+    containers            == 0.5.*,
+    data-default          == 0.7.*,
     optparse-applicative  >= 0.13 && < 0.15,
-    process               == 1.*,
+    typed-process         == 0.2.*,
     twitch                == 0.1.7.*
   default-language: Haskell2010
   ghc-options: -Wall -O2 -threaded -rtsopts

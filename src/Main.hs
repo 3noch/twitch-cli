@@ -1,16 +1,26 @@
+{-# LANGUAGE BangPatterns   #-}
 {-# LANGUAGE NamedFieldPuns #-}
 
 module Main (main) where
 
-import           Data.Default        (def)
-import           Data.Foldable       (sequenceA_)
-import           Data.List           (elemIndex, splitAt)
-import           Data.Monoid         ((<>))
-import           Data.String         (fromString)
-import qualified Options.Applicative as O
-import qualified System.Environment  as Sys
-import           System.Process      (system)
-import qualified Twitch              as T
+import           Control.Concurrent       (MVar, modifyMVar_, newMVar, threadDelay)
+import           Control.Concurrent.Async (Async, async, cancel)
+import           Control.Monad            (when)
+import           Data.Char                (toLower)
+import           Data.Default             (def)
+import           Data.Foldable            (sequenceA_)
+import           Data.Function            ((&))
+import           Data.List                (elemIndex, splitAt)
+import qualified Data.Map                 as Map
+import           Data.Map.Strict          (Map)
+import           Data.Monoid              (mempty, (<>))
+import           Data.String              (fromString)
+import qualified Options.Applicative      as O
+import           System.Environment       (getEnvironment)
+import qualified System.Environment       as Sys
+import           System.Process.Typed     (runProcess_, setEnv, shell)
+import qualified Twitch                   as T
+
 
 main :: IO ()
 main = mainWithArgs =<< parseArgs =<< Sys.getArgs
@@ -23,25 +33,65 @@ parseArgs args = O.handleParseResult $ O.execParserPure O.defaultPrefs opts args
       <> O.progDesc "Watch for file patterns and run commands when they change"
       )
 
+runCommand :: FilePath -> String -> Double -> IO (Async ())
+runCommand file command delaySecs = async $ do
+    when (delaySecs > 0) (threadDelay $ secondsToMicroseconds delaySecs)
+    env <- getEnvironment
+    let
+      newEnv = env & Map.fromList & Map.insert "FILE" file & Map.toList
+    runProcess_ (shell command & setEnv newEnv)
+
+startCommand :: Double -> String -> FilePath -> String -> MVar (Map String (Async ())) -> IO ()
+startCommand delaySecs key file command procsMapMvar = modifyMVar_ procsMapMvar $ \procsMap -> do
+  let existingAsync' = Map.lookup key procsMap
+  case existingAsync' of
+    Nothing            -> pure ()
+    Just existingAsync -> cancel existingAsync
+  newAsync <- runCommand file command delaySecs
+  pure $ Map.insert key newAsync procsMap
+
 mainWithArgs :: Options -> IO ()
-mainWithArgs opts@Options{_patterns} =
-  T.defaultMainWithOptions (twitchOpts opts)
-    $ sequenceA_ (toDep <$> _patterns)
+mainWithArgs opts@Options{_patterns, _debounceKey, _debounceSecs} =
+  if null _patterns then
+    putStrLn "Nothing to do"
+  else do
+    let !debounceKeyParsed = parseDebounceKey _debounceKey
+    runningProcs <- newMVar mempty
+    T.defaultMainWithOptions (twitchOpts opts)
+      $ sequenceA_ (toDep debounceKeyParsed runningProcs <$> _patterns)
   where
-    toDep (Pattern pat cmd) = T.addModify
-      (\file -> system $ "FILE='" ++ file ++ "';" ++ cmd)
-      (fromString pat)
+    toDep perKey runningProcs pat = T.addModify
+      (\file -> let
+        key = case perKey of
+          DebouncePerAny     -> ""
+          DebouncePerFile    -> file
+          DebouncePerPattern -> _pattern pat
+          DebouncePerCommand -> _command pat
+        in startCommand _debounceSecs key file (_command pat) runningProcs)
+      (fromString $ _pattern pat)
+
+data DebounceKey = DebouncePerAny | DebouncePerFile | DebouncePerPattern | DebouncePerCommand
+  deriving (Bounded, Enum, Eq, Ord, Show)
+
+parseDebounceKey :: String -> DebounceKey
+parseDebounceKey str = case map toLower str of
+  "all"     -> DebouncePerAny
+  "file"    -> DebouncePerFile
+  "pattern" -> DebouncePerPattern
+  "command" -> DebouncePerCommand
+  _         -> error "Unrecognized debounce key: must be one of 'all', 'file', 'pattern', 'command'"
 
 twitchOpts :: Options -> T.Options
-twitchOpts Options{_dir, _noDebounce} = def{
-    T.root=Just _dir,
-    T.debounce=if _noDebounce then T.NoDebounce else T.DebounceDefault
+twitchOpts Options{_dir} = def{
+  T.root     = Just _dir,
+  T.debounce = T.NoDebounce
   }
 
 data Options = Options{
-    _dir        :: String,
-    _noDebounce :: Bool,
-    _patterns   :: [Pattern]
+    _dir          :: String,
+    _debounceKey  :: String,
+    _debounceSecs :: Double,
+    _patterns     :: [Pattern]
   } deriving Show
 
 data Pattern = Pattern{
@@ -59,10 +109,19 @@ cmdOpts = Options
     <> O.value "."
     <> O.showDefault
     )
-  <*> O.switch
-    (  O.long "no-debounce"
-    <> O.help "Disable debounce (this is useful if you want a command to run \
-              \for each file that changes)"
+  <*> O.strOption
+    ( O.long "key"
+    <> O.short 'k'
+    <> O.metavar "DEBOUNCE-KEY"
+    <> O.help "Key to use for debouncing. May by one of 'all', 'pattern', 'command', or 'file'."
+    <> O.value "pattern"
+    <> O.showDefault
+    )
+  <*> O.option O.auto
+    (  O.long "debounce"
+    <> O.metavar "SECONDS"
+    <> O.help "Number of floating-point seconds to use for debouncing changes per DEBOUNCE-KEY"
+    <> O.value 1
     <> O.showDefault
     )
   <*> O.many (O.option (readWith parsePattern)
@@ -97,3 +156,7 @@ parsePattern str
 
 readWith :: Show err => (String -> Either err b) -> O.ReadM b
 readWith f = O.eitherReader (either (Left . show) Right . f)
+
+
+secondsToMicroseconds :: Double -> Int
+secondsToMicroseconds = round . (*1000000)
