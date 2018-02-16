@@ -28,6 +28,7 @@ executable twitch
     base                  >= 4.7 && < 5,
     containers            == 0.5.*,
     data-default          == 0.7.*,
+    Glob,
     optparse-applicative  >= 0.13 && < 0.15,
     typed-process         == 0.2.*,
     twitch                == 0.1.7.*

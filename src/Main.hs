@@ -4,7 +4,7 @@
 module Main (main) where
 
 import           Control.Concurrent       (MVar, modifyMVar_, newMVar, threadDelay)
-import           Control.Concurrent.Async (Async, async, cancel)
+import           Control.Concurrent.Async (Async, async, cancel, forConcurrently_)
 import           Control.Monad            (when)
 import           Data.Char                (toLower)
 import           Data.Default             (def)
@@ -18,6 +18,7 @@ import           Data.String              (fromString)
 import qualified Options.Applicative      as O
 import           System.Environment       (getEnvironment)
 import qualified System.Environment       as Sys
+import qualified System.FilePath.Glob     as Glob
 import           System.Process.Typed     (runProcess_, setEnv, shell)
 import qualified Twitch                   as T
 
@@ -51,24 +52,32 @@ startCommand delaySecs key file command procsMapMvar = modifyMVar_ procsMapMvar 
   pure $ Map.insert key newAsync procsMap
 
 mainWithArgs :: Options -> IO ()
-mainWithArgs opts@Options{_patterns, _debounceKey, _debounceSecs} =
+mainWithArgs Options{_patterns, _debounceKey, _debounceSecs} =
   if null _patterns then
-    putStrLn "Nothing to do"
+    putStrLn "No patterns given"
   else do
-    let !debounceKeyParsed = parseDebounceKey _debounceKey
+    let
+      !debounceKeyParsed = parseDebounceKey _debounceKey
+      patternsByDir = groupCommonDirs _patterns
+
     runningProcs <- newMVar mempty
-    T.defaultMainWithOptions (twitchOpts opts)
-      $ sequenceA_ (toDep debounceKeyParsed runningProcs <$> _patterns)
-  where
-    toDep perKey runningProcs pat = T.addModify
-      (\file -> let
-        key = case perKey of
-          DebouncePerAny     -> ""
-          DebouncePerFile    -> file
-          DebouncePerPattern -> _pattern pat
-          DebouncePerCommand -> _command pat
-        in startCommand _debounceSecs key file (_command pat) runningProcs)
-      (fromString $ _pattern pat)
+    forConcurrently_ (Map.toList patternsByDir) $ \(baseDir, pats) -> do
+      let
+        toDep (pat, command) = T.addModify
+          (\file -> startCommand _debounceSecs (key file) file command runningProcs)
+          (fromString patStr)
+          where
+            patStr = Glob.decompile pat
+            key file = case debounceKeyParsed of
+              DebouncePerAny     -> ""
+              DebouncePerFile    -> file
+              DebouncePerPattern -> baseDir ++ "/" ++ patStr
+              DebouncePerCommand -> command
+
+      T.defaultMainWithOptions
+        def{ T.root = Just baseDir, T.debounce = T.NoDebounce }
+        $ sequenceA_ (toDep <$> pats)
+
 
 data DebounceKey = DebouncePerAny | DebouncePerFile | DebouncePerPattern | DebouncePerCommand
   deriving (Bounded, Enum, Eq, Ord, Show)
@@ -81,14 +90,15 @@ parseDebounceKey str = case map toLower str of
   "command" -> DebouncePerCommand
   _         -> error "Unrecognized debounce key: must be one of 'all', 'file', 'pattern', 'command'"
 
-twitchOpts :: Options -> T.Options
-twitchOpts Options{_dir} = def{
-  T.root     = Just _dir,
-  T.debounce = T.NoDebounce
-  }
+
+groupCommonDirs :: [Pattern] -> Map FilePath [(Glob.Pattern, String)]
+groupCommonDirs patterns = Map.fromListWith (++)
+  [ (baseDir, [(Glob.simplify pat, cmd)])
+  | Pattern globStr cmd <- patterns
+  , let (baseDir, pat) = Glob.commonDirectory $ Glob.compile globStr
+  ]
 
 data Options = Options{
-    _dir          :: String,
     _debounceKey  :: String,
     _debounceSecs :: Double,
     _patterns     :: [Pattern]
@@ -102,14 +112,6 @@ data Pattern = Pattern{
 cmdOpts :: O.Parser Options
 cmdOpts = Options
   <$> O.strOption
-    (  O.long "dir"
-    <> O.short 'd'
-    <> O.metavar "DIR"
-    <> O.help "Base directory to watch"
-    <> O.value "."
-    <> O.showDefault
-    )
-  <*> O.strOption
     ( O.long "key"
     <> O.short 'k'
     <> O.metavar "DEBOUNCE-KEY"
