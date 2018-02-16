@@ -18,16 +18,16 @@ twitch --help
 
 # Watches for .pyc files at any depth and deletes
 # them when created or modified.
-twitch --no-debounce -p '**/*.pyc:rm $FILE'
+twitch --debounce 0 -p '**/*.pyc:rm $FILE'
 
 # Watches .cabal files and reconfigures when they change.
 # Also watches .hs files at any depth in the src folder
-# and rebuilds project when they change.
+# and rebuilds the project when they change.
 twitch -p '*.cabal:cabal configure && cabal build' 'src/**/*.hs:cabal build'
 
 # Watches all .log files in /var/log and prints their last line
 # when they change.
-twitch --no-debounce --dir /var/log -p '*.log:tail -n 1 $FILE'
+twitch --debounce 0 --dir /var/log -p '*.log:tail -n 1 $FILE'
 ```
 
 
