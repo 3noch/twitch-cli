@@ -5,6 +5,7 @@ module Main (main) where
 
 import           Control.Concurrent       (MVar, modifyMVar_, newMVar, threadDelay)
 import           Control.Concurrent.Async (Async, async, cancel, forConcurrently_)
+import           Control.Exception        (finally)
 import           Control.Monad            (when)
 import           Data.Char                (toLower)
 import           Data.Default             (def)
@@ -19,7 +20,7 @@ import qualified Options.Applicative      as O
 import           System.Environment       (getEnvironment)
 import qualified System.Environment       as Sys
 import qualified System.FilePath.Glob     as Glob
-import           System.Process.Typed     (runProcess_, setEnv, shell)
+import           System.Process.Typed     (ProcessConfig, setEnv, shell, startProcess, stopProcess, waitExitCode)
 import qualified Twitch                   as T
 
 
@@ -38,9 +39,8 @@ runCommand :: FilePath -> String -> Double -> IO (Async ())
 runCommand file command delaySecs = async $ do
     when (delaySecs > 0) (threadDelay $ secondsToMicroseconds delaySecs)
     env <- getEnvironment
-    let
-      newEnv = env & Map.fromList & Map.insert "FILE" file & Map.toList
-    runProcess_ (shell command & setEnv newEnv)
+    let newEnv = env & Map.fromList & Map.insert "FILE" file & Map.toList
+    runProcessUntilCancel (shell command & setEnv newEnv)
 
 startCommand :: Double -> String -> FilePath -> String -> MVar (Map String (Async ())) -> IO ()
 startCommand delaySecs key file command procsMapMvar = modifyMVar_ procsMapMvar $ \procsMap -> do
@@ -50,6 +50,12 @@ startCommand delaySecs key file command procsMapMvar = modifyMVar_ procsMapMvar 
     Just existingAsync -> cancel existingAsync
   newAsync <- runCommand file command delaySecs
   pure $ Map.insert key newAsync procsMap
+
+runProcessUntilCancel :: ProcessConfig () () () -> IO ()
+runProcessUntilCancel c = do
+  p <- startProcess c;
+  _ <- waitExitCode p `finally` stopProcess p
+  pure ()
 
 mainWithArgs :: Options -> IO ()
 mainWithArgs Options{_patterns, _debounceKey, _debounceSecs} =
@@ -158,7 +164,6 @@ parsePattern str
 
 readWith :: Show err => (String -> Either err b) -> O.ReadM b
 readWith f = O.eitherReader (either (Left . show) Right . f)
-
 
 secondsToMicroseconds :: Double -> Int
 secondsToMicroseconds = round . (*1000000)
