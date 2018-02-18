@@ -4,25 +4,22 @@
 module Main (main) where
 
 import           Control.Concurrent       (MVar, modifyMVar_, newMVar, threadDelay)
-import           Control.Concurrent.Async (Async, async, cancel, forConcurrently_)
+import           Control.Concurrent.Async (Async, async, cancel)
 import           Control.Exception        (finally)
-import           Control.Monad            (when)
+import           Control.Monad            (forM_, forever, when)
 import           Data.Char                (toLower)
-import           Data.Default             (def)
 import           Data.Foldable            (sequenceA_)
-import           Data.Function            ((&))
 import           Data.List                (elemIndex, splitAt)
 import qualified Data.Map                 as Map
 import           Data.Map.Strict          (Map)
+import           Data.Maybe               (isJust)
 import           Data.Monoid              (mempty, (<>))
-import           Data.String              (fromString)
 import qualified Options.Applicative      as O
 import           System.Environment       (getEnvironment)
 import qualified System.Environment       as Sys
 import qualified System.FilePath.Glob     as Glob
+import           System.FSNotify          (Event(..), watchTree, withManager)
 import           System.Process.Typed     (ProcessConfig, setEnv, shell, startProcess, stopProcess, waitExitCode)
-import qualified Twitch                   as T
-
 
 main :: IO ()
 main = mainWithArgs =<< parseArgs =<< Sys.getArgs
@@ -35,12 +32,44 @@ parseArgs args = O.handleParseResult $ O.execParserPure O.defaultPrefs opts args
       <> O.progDesc "Watch for file patterns and run commands when they change"
       )
 
+mainWithArgs :: Options -> IO ()
+mainWithArgs Options{_patterns, _debounceKey, _debounceSecs} =
+  if null _patterns then
+    putStrLn "No patterns given"
+  else do
+    let
+      !debounceKeyParsed = parseDebounceKey _debounceKey
+      patternsByDir = groupCommonDirs _patterns
+
+    runningProcs <- newMVar mempty
+    withManager $ \mgr -> do
+      forM_ (Map.toList patternsByDir) $ \(baseDir, pats) ->
+        watchTree mgr baseDir (isJust . fromAddOrModifyEvent) $ \event -> case fromAddOrModifyEvent event of
+          Nothing -> pure ()
+          Just file -> let
+            key pat command = case debounceKeyParsed of
+              DebouncePerAny     -> ""
+              DebouncePerFile    -> file
+              DebouncePerPattern -> baseDir ++ "/" ++ Glob.decompile pat
+              DebouncePerCommand -> command
+            in sequenceA_
+                [ startCommand _debounceSecs (key pat command) file command runningProcs
+                | (pat, command) <- pats, Glob.match pat file
+                ]
+
+      forever $ threadDelay maxBound
+  where
+    fromAddOrModifyEvent event = case event of
+      Added file    _ -> Just file
+      Modified file _ -> Just file
+      _               -> Nothing
+
 runCommand :: FilePath -> String -> Double -> IO (Async ())
 runCommand file command delaySecs = async $ do
-    when (delaySecs > 0) (threadDelay $ secondsToMicroseconds delaySecs)
-    env <- getEnvironment
-    let newEnv = env & Map.fromList & Map.insert "FILE" file & Map.toList
-    runProcessUntilCancel (shell command & setEnv newEnv)
+  when (delaySecs > 0) (threadDelay $ secondsToMicroseconds delaySecs)
+  env <- getEnvironment
+  let newEnv = Map.toList $ Map.insert "FILE" file $ Map.fromList env
+  runProcessUntilCancel (setEnv newEnv $ shell command)
 
 startCommand :: Double -> String -> FilePath -> String -> MVar (Map String (Async ())) -> IO ()
 startCommand delaySecs key file command procsMapMvar = modifyMVar_ procsMapMvar $ \procsMap -> do
@@ -53,36 +82,9 @@ startCommand delaySecs key file command procsMapMvar = modifyMVar_ procsMapMvar 
 
 runProcessUntilCancel :: ProcessConfig () () () -> IO ()
 runProcessUntilCancel c = do
-  p <- startProcess c;
+  p <- startProcess c
   _ <- waitExitCode p `finally` stopProcess p
   pure ()
-
-mainWithArgs :: Options -> IO ()
-mainWithArgs Options{_patterns, _debounceKey, _debounceSecs} =
-  if null _patterns then
-    putStrLn "No patterns given"
-  else do
-    let
-      !debounceKeyParsed = parseDebounceKey _debounceKey
-      patternsByDir = groupCommonDirs _patterns
-
-    runningProcs <- newMVar mempty
-    forConcurrently_ (Map.toList patternsByDir) $ \(baseDir, pats) -> do
-      let
-        toDep (pat, command) = T.addModify
-          (\file -> startCommand _debounceSecs (key file) file command runningProcs)
-          (fromString patStr)
-          where
-            patStr = Glob.decompile pat
-            key file = case debounceKeyParsed of
-              DebouncePerAny     -> ""
-              DebouncePerFile    -> file
-              DebouncePerPattern -> baseDir ++ "/" ++ patStr
-              DebouncePerCommand -> command
-
-      T.defaultMainWithOptions
-        def{ T.root = Just baseDir, T.debounce = T.NoDebounce }
-        $ sequenceA_ (toDep <$> pats)
 
 
 data DebounceKey = DebouncePerAny | DebouncePerFile | DebouncePerPattern | DebouncePerCommand
@@ -95,7 +97,6 @@ parseDebounceKey str = case map toLower str of
   "pattern" -> DebouncePerPattern
   "command" -> DebouncePerCommand
   _         -> error "Unrecognized debounce key: must be one of 'all', 'file', 'pattern', 'command'"
-
 
 groupCommonDirs :: [Pattern] -> Map FilePath [(Glob.Pattern, String)]
 groupCommonDirs patterns = Map.fromListWith (++)
@@ -110,10 +111,7 @@ data Options = Options{
     _patterns     :: [Pattern]
   } deriving Show
 
-data Pattern = Pattern{
-    _pattern :: String,
-    _command :: String
-  } deriving Show
+data Pattern = Pattern{ _pattern :: String, _command :: String } deriving Show
 
 cmdOpts :: O.Parser Options
 cmdOpts = Options
@@ -152,10 +150,9 @@ cmdOpts = Options
 parsePattern :: String -> Either String Pattern
 parsePattern str
   | null pat || null cmd = Left "Invalid pattern"
-  | otherwise =  Right (Pattern pat cmd)
+  | otherwise = Right (Pattern pat cmd)
   where
-    idx' = elemIndex ':' str
-    (pat, cmd) = case idx' of
+    (pat, cmd) = case elemIndex ':' str of
       Just idx -> let (pat', cmd') = splitAt idx str
                    in if null cmd'
                         then (pat', "")

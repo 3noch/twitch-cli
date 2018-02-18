@@ -4,8 +4,6 @@
 
 A simple command-line tool to watch one or more [Glob patterns](https://hackage.haskell.org/package/Glob/docs/System-FilePath-Glob.html#v:compile) and run commands when they change. Essentially this is a more ergonomic version of [`inotifywait`](https://linux.die.net/man/1/inotifywait).
 
-This CLI is a simple wrapper around the excellent [`twitch` library](https://github.com/jfischoff/twitch).
-
 For a more advanced tool with similar features, checkout [steeloverseer](https://github.com/schell/steeloverseer). steeloverseer allows for more complex rules at the cost of a slightly less friendly interface.
 
 **Built by [Grafted-In](https://graftedin.io).**
