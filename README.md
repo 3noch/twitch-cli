@@ -8,8 +8,6 @@ The CLI UI of this tool is inspired by the [twitch](https://github.com/jfischoff
 
 For a more advanced tool with similar features, checkout [steeloverseer](https://github.com/schell/steeloverseer). steeloverseer allows for more complex rules at the cost of a slightly less friendly interface.
 
-**Built by [Grafted-In](https://graftedin.io).**
-
 
 ## Usage
 
